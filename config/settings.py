@@ -1,0 +1,18 @@
+
+
+config = {
+    'ticker': 'AAPL',
+    'start_date': '2015-01-01',
+    'end_date': '2023-12-31',
+    'train_ratio': 0.8,
+    'rolling_window': 60,
+    'lstm': {
+        'epochs': 20,
+        'lr': 0.001,
+        'hidden_size': 64,
+        'num_layers': 2,
+        'batch_size': 32
+    }
+}
+
+
