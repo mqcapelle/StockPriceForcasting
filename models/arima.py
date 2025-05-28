@@ -1,7 +1,11 @@
+import matplotlib.pyplot as plt
 from pathlib import Path
 import pandas as pd
 from statsmodels.tsa.arima.model import ARIMA
 from typing import Optional
+
+
+from utils.general_utils import load_config
 
 
 class ARIMAModel:
@@ -25,38 +29,43 @@ class ARIMAModel:
         The fitted ARIMA model.
     """
 
-    def __init__(self, data: pd.DataFrame, ticker: str, p: int = 1, d: int = 0, q: int = 0, target_col: str = 'Close'):
-        self.ticker = ticker
+    def __init__(self, data: pd.DataFrame, config_path: Path = Path("config/settings.yaml"),
+                 p: int = 1, d: int = 0, q: int = 0,
+                 target_col: str = 'Close', resampling_freq='B'):
+        self.config = load_config(config_path)
+        # self.ticker = self.config['ticker']
         self.p = p
         self.d = d
         self.q = q
         self.target_col = target_col
+        self.resampling_freq = resampling_freq
 
         # Extract univariate series from multiindex dataframe
-        self.series = self._extract_series(data)
+        self.series = self._extract_series(data, resampling_freq)
 
         self.model_fit: Optional[ARIMA] = None
 
-    def _extract_series(self, data: pd.DataFrame) -> pd.Series:
+    def _extract_series(self, data: pd.DataFrame, resampling_freq: pd.Timedelta) -> pd.Series:
         """
-        Extracts the target time series for the ticker from the multiindex dataframe.
+        Extracts the target time series for the ticker from the dataframe.
 
         Parameters:
         -----------
         data : pd.DataFrame
-            MultiIndex columns dataframe (Price, Ticker).
 
         Returns:
         --------
         pd.Series
-            Time series for the specified target_col and ticker.
+            Time series for the specified target_col, indexed by Date in
+            datetime format.
         """
         try:
-            series = data[self.target_col][self.ticker]
+            series = data[self.target_col]
+            # Resample to desired frequency, taking the mean of each period
+            resampled_series = series.resample(resampling_freq).mean()
+            return resampled_series.dropna()
         except KeyError:
-            raise KeyError(f"Could not find '{self.target_col}' for ticker '{self.ticker}' in data.")
-
-        return series.dropna()
+            raise KeyError(f"Could not find '{self.target_col}' in data.")
 
     def fit(self):
         """
@@ -97,29 +106,62 @@ class ARIMAModel:
         else:
             print(self.model_fit.summary())
 
+    def plot_forecast(self, ax=None, steps: int = 5, include_conf_int: bool = True):
+        """
+        Plot the historical series and ARIMA forecast.
+
+        Parameters:
+        -----------
+        steps : int
+            Number of future steps to forecast.
+        include_conf_int : bool
+            Whether to include confidence intervals.
+        """
+        if self.model_fit is None:
+            raise RuntimeError("Model is not fitted yet. Call fit() first.")
+
+        forecast_result = self.model_fit.get_forecast(steps=steps)
+        forecast_mean = forecast_result.predicted_mean
+        forecast_index = pd.date_range(start=self.series.index[-1] + pd.Timedelta(days=1), periods=steps, freq='B')
+
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(10, 6))
+
+        ax.plot(self.series, label='Historical', color='black')
+        ax.plot(forecast_index, forecast_mean, label='Forecast', color='blue')
+
+        if include_conf_int:
+            conf_int = forecast_result.conf_int()
+            lower, upper = conf_int.iloc[:, 0], conf_int.iloc[:, 1]
+            plt.fill_between(forecast_index, lower, upper, color='blue', alpha=0.2, label='Confidence Interval')
+
+        ax.axvline(self.series.index[-1], color='gray', linestyle='--', label='Forecast Start')
+        ax.set_title(f"ARIMA Forecast for {self.target_col}")
+        ax.set_xlabel("Date")
+        ax.set_ylabel(self.target_col)
+        ax.grid(True)
+
+        return ax
+
 
 # Example usage:
 if __name__ == "__main__":
-    # # Example DataFrame with MultiIndex columns
-    # data = pd.DataFrame({
-    #     ('Close', 'AAPL'): [150, 152, 153, 155, 157],
-    #     ('Close', 'GOOGL'): [2800, 2820, 2815, 2830, 2840]
-    # }, index=pd.date_range(start='2023-01-01', periods=5, freq='B'))
-    #
-    # model = ARIMAModel(data, ticker='AAPL', p=1, d=0, q=0)
-    # model.fit()
-    # print(model.summary())
-    # forecast = model.forecast(steps=5)
-    # print(forecast)
+    # Settings
+    config_path = Path("config/settings.yaml")
 
     # Load data using StockDataLoader
     from utils.data_loader import StockDataLoader
-    loader = StockDataLoader("config/settings.yaml")
+    loader = StockDataLoader(config_path)
     df = loader.load_data()
 
-    # Assume df is your loaded multiindex dataframe, e.g., from StockDataLoader.load_data()
-    arima_model = ARIMAModel(df, ticker='AAPL', p=5, d=1, q=0)
+    # Run ARIMA model
+    arima_model = ARIMAModel(df, config_path, p=5, d=1, q=0)
     arima_model.fit()
     arima_model.summary()
     forecast = arima_model.forecast(steps=5)
+
     print(forecast)
+
+    ax = arima_model.plot_forecast(steps=5)
+
+
