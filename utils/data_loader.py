@@ -27,54 +27,34 @@ class StockDataLoader:
         with open(path, "r") as f:
             return yaml.safe_load(f)
 
+    def _download_data(self) -> pd.DataFrame:
+        return (
+            # Download data from Yahoo Finance
+            yf.download(self.ticker, start=self.start_date, end=self.end_date)
+            # Set ticker as separate column
+            .stack(level='Ticker', future_stack=True)
+            # Reset index to flatten the DataFrame
+            .reset_index()
+        )
+
     def load_data(self) -> pd.DataFrame:
         if self.file_path.exists():
             print(f"[INFO] Loading local file: {self.file_path}")
-            # Load the CSV file with multi-index columns
-            df = pd.read_csv(self.file_path, header=[0, 1], index_col=0, parse_dates=True)
+            # Load the CSV file, ensuring 'Date' is parsed as datetime
+            df = pd.read_csv(self.file_path, parse_dates=["Date"])
         else:
             print(f"[INFO] Downloading data for {self.ticker} from Yahoo Finance")
             df = self._download_data()
-            df = self._clean_data(df)
-            self.store_data(df)  # store cleaned data after loading/downloading
-            print(f"[INFO] Saved to {self.file_path}")
-
-        return df
-
-    def _download_data(self) -> pd.DataFrame:
-        df = yf.download(self.ticker, start=self.start_date, end=self.end_date)
-
-        if df.empty:
-            raise ValueError(f"[ERROR] No data downloaded for ticker '{self.ticker}'.")
-
-        return df
-
-    def _clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        # Ensure index is datetime
-        if not isinstance(df.index, pd.DatetimeIndex):
-            try:
-                df.index = pd.to_datetime(df.index)
-            except Exception as e:
-                raise ValueError(f"[ERROR] Failed to convert index to datetime: {e}")
-
-        df = df.dropna()
-        df = df.sort_index()
-
-        # Try to set frequency to business days for compatibility with time series models
-        try:
-            df.index.freq = pd.infer_freq(df.index)
-            if df.index.freq is None:
-                df.index.freq = 'B'  # fallback
-        except Exception as e:
-            print(f"[WARNING] Could not infer frequency. Reason: {e}")
-            df.index.freq = None
+            if df.empty:
+                raise ValueError(f"[ERROR] No data downloaded for ticker '{self.ticker}'.")
+            self.store_data(df)
 
         return df
 
     def store_data(self, df: pd.DataFrame):
-        """Save cleaned data to CSV file."""
-        df.to_csv(self.file_path)
-        print(f"[INFO] Data stored at {self.file_path}")
+        """Store the DataFrame to a CSV file."""
+        df.to_csv(self.file_path, header=True, index=False)
+        print(f"[INFO] Saved to {self.file_path}")
 
 
 # Example usage:
@@ -82,5 +62,4 @@ if __name__ == "__main__":
     loader = StockDataLoader("config/settings.yaml")
     df = loader.load_data()
     print(df.head())
-
 
