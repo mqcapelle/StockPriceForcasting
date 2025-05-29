@@ -15,9 +15,7 @@ class ARIMAModel:
     Parameters:
     -----------
     data : pd.DataFrame
-        Time series data with MultiIndex columns (Price, Ticker).
-    ticker : str
-        The ticker symbol to extract from data.
+        Time series with a 'Date' datetime column and target value column.
     p, d, q : int
         ARIMA hyperparameters.
     target_col : str
@@ -31,18 +29,15 @@ class ARIMAModel:
 
     def __init__(self, data: pd.DataFrame, config_path: Path = Path("config/settings.yaml"),
                  p: int = 1, d: int = 0, q: int = 0,
-                 target_col: str = 'Close', resampling_freq='B'):
+                 target_col: str = 'Close', resampling_freq: str = 'B'):
         self.config = load_config(config_path)
-        # self.ticker = self.config['ticker']
         self.p = p
         self.d = d
         self.q = q
         self.target_col = target_col
         self.resampling_freq = resampling_freq
 
-        # Extract univariate series from multiindex dataframe
         self.series = self._extract_series(data, resampling_freq)
-
         self.model_fit: Optional[ARIMA] = None
 
     def _extract_series(self, data: pd.DataFrame, resampling_freq: pd.Timedelta) -> pd.Series:
@@ -93,7 +88,8 @@ class ARIMAModel:
 
         forecast_result = self.model_fit.get_forecast(steps=steps)
         forecast_series = forecast_result.predicted_mean
-        forecast_series.index = pd.date_range(start=self.series.index[-1] + pd.Timedelta(days=1), periods=steps, freq='B')
+        forecast_series.index = pd.date_range(start=self.series.index[-1] + pd.Timedelta(days=1),
+                                              periods=steps, freq='B')
 
         return forecast_series
 
